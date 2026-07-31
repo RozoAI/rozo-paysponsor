@@ -57,7 +57,7 @@ Base: `https://intentapiv4.rozo.ai/functions/v1/payment-api`
 | Claim status | `GET /payments/:id/claim` |
 | Build sponsored claim | `POST /payments/:id/claim/transaction` — body `{claimant: "G..."}`, `Idempotency-Key` header (8–200 chars) |
 | Submit signed XDR | `POST /payments/:id/claim/submit` — body `{transactionId, signedXdr}`, `Idempotency-Key` header |
-| Unclaim / close account | account-close endpoints (branch; see `stellar-close-rebate` handlers) |
+| Close account | account-close endpoints (branch; see `stellar-close-rebate` handlers) |
 
 ## Scripts
 
@@ -92,7 +92,7 @@ Each full run costs ~$1 USDC + Base gas and exercises production.
 | 2 | `deposit-intents.mjs --amount 1` | intent created (with `intent: stellarsponsor`); deposit address returned; Base tx confirmed; claim appears (parked) within ~2 min |
 | 3 | `GET /payments/:id/claim` | claim exists, status `claim_ready` |
 | 4 | `claim-intents.mjs` | build returns signable XDR; submit 200 (allow one 422 retry); tx on Horizon |
-| 5 | Wait ≤2 min | claim terminal; Horizon shows USDC on the new wallet, **minus the 2 XLM + $0.10 fee** once fee deduction ships |
+| 5 | Wait ≤2 min | claim terminal; Horizon shows USDC on the new wallet, **minus the 2 XLM + $0.05 fee** once fee deduction ships |
 | 6 | Re-run `claim-intents.mjs` | idempotent: no double-spend, no error loop |
 | 7 | Stellar→Stellar variant of 2–6 | same outcome with source chainId `1500` |
 | 8 | Create with amount > $10,000 | rejected at creation once the cap ships |
