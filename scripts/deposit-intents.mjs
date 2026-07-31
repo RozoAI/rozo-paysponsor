@@ -10,6 +10,7 @@
 // Spends real money. Env overrides: INTENTS_API, APP_ID (default rozoTest so
 // demo runs stay out of GMV), BASE_RPC_URL.
 
+import 'dotenv/config';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';

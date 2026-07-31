@@ -10,6 +10,7 @@
 // (Idempotency-Key) → sign locally → POST .../claim/submit (Idempotency-Key)
 // → poll claim status → verify USDC on Horizon.
 
+import 'dotenv/config';
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';

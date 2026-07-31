@@ -66,6 +66,7 @@ All scripts read secrets from environment variables or local `wallets/` files
 
 ```bash
 npm install                                # Node 20+
+cp .env.example .env                       # fill in DEPOSIT_EVM_PRIVATE_KEY (never commit .env)
 
 # 1. fresh recipient wallet
 node scripts/create-wallet.mjs stellar     # → wallets/stellar-<ts>.txt
