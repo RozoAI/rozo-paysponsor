@@ -35,7 +35,7 @@ genuinely have funds parked.
 | Routes | Any Intents source chain → Stellar, **including Stellar → Stellar**. |
 | Service fee | **$0.05 flat per operation** — transfer and bridge. |
 | Claim fee | **$0.05 plus 2 XLM** (the sponsored-reserve deposit component, converted to USD at claim time), deducted from the delivered USDC (a fresh wallet has nothing else to pay with). At XLM ≈ $0.17: claim ≈ $0.39. The 2 XLM is effectively a deposit — most of it comes back on account close. |
-| Unclaim / account close | The recipient can close (delete) the account: the unlocked XLM reserves are rebated **in USDC only** (95%, priced at execution time); any remaining USDC balance is **bridged out to a destination of their choice** with the bridge fee deducted from it. Zero gas throughout. |
+| Close | Two variants. **`close`** (no balance): delete the account; unlocked XLM reserves are rebated **in USDC only** (95%, priced at execution time). **`close with balance`**: the user provides a destination address; remaining USDC plus the reserve rebate are sent out together, with the bridge/transfer fee deducted. Zero gas throughout. |
 | Park TTL | 30 days; expiry releases sponsorship capacity but funds stay on the custody ledger and remain claimable on request. |
 
 > Server-side status: the claim surface, fee deduction, $10k cap, and
@@ -96,7 +96,7 @@ Each full run costs ~$1 USDC + Base gas and exercises production.
 | 6 | Re-run `claim-intents.mjs` | idempotent: no double-spend, no error loop |
 | 7 | Stellar→Stellar variant of 2–6 | same outcome with source chainId `1500` |
 | 8 | Create with amount > $10,000 | rejected at creation once the cap ships |
-| 9 | Unclaim: close the account | reserves unlock; rebate paid per policy |
+| 9 | `close` (and `close with balance`) | account deleted; reserve rebate paid in USDC; balance variant pays out to the given destination minus fee |
 
 Failure triage:
 - build 503 `sponsorship_capacity_exhausted` → sponsor flag off or custody capacity
