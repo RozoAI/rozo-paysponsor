@@ -33,9 +33,9 @@ genuinely have funds parked.
 | Opt-in | Sponsorship is per-intent: pass the `intent` field at creation (frontend passes `?intent=stellarsponsor`). No field → no sponsorship, normal behavior. |
 | Amount cap | **$10,000 USD per sponsored intent**, enforced at creation. |
 | Routes | Any Intents source chain → Stellar, **including Stellar → Stellar**. |
-| Service fee | **$0.10 flat per operation** — applies to each of transfer, bridge, and claim. |
-| Claim fee | service fee **plus 2 XLM** (the sponsored-reserve component, converted to USD at claim time), deducted from the delivered USDC (a fresh wallet has nothing else to pay with). At XLM ≈ $0.17: claim ≈ $0.44 total; transfer/bridge = $0.10. |
-| Unclaim / account close | The recipient can later close (delete) the account; the sponsored XLM reserves unlock and are rebated per the account-close policy. XLM/USD is computed at execution time. |
+| Service fee | **$0.05 flat per operation** — transfer and bridge. |
+| Claim fee | **$0.05 plus 2 XLM** (the sponsored-reserve deposit component, converted to USD at claim time), deducted from the delivered USDC (a fresh wallet has nothing else to pay with). At XLM ≈ $0.17: claim ≈ $0.39. The 2 XLM is effectively a deposit — most of it comes back on account close. |
+| Unclaim / account close | The recipient can close (delete) the account: the unlocked XLM reserves are rebated **in USDC only** (95%, priced at execution time); any remaining USDC balance is **bridged out to a destination of their choice** with the bridge fee deducted from it. Zero gas throughout. |
 | Park TTL | 30 days; expiry releases sponsorship capacity but funds stay on the custody ledger and remain claimable on request. |
 
 > Server-side status: the claim surface, fee deduction, $10k cap, and
