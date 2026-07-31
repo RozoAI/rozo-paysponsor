@@ -1,22 +1,20 @@
 # rozo-paysponsor-demo
 
-Script-only demo of **Rozo's gasless sponsored claim**: send USDC to a
-**brand-new Stellar wallet** (0 XLM, no trustline) and let the recipient claim
-it **paying zero gas** — entirely through public APIs, no frontend.
+Script-only demo of **Rozo's gasless sponsored claim** on the Rozo Intents
+rail: send USDC to a **brand-new Stellar wallet** (0 XLM, no trustline) and let
+the recipient claim it **paying zero gas** — entirely through public APIs, no
+frontend.
 
-Two deposit rails, one claim idea:
+Supported sources: **any Intents source chain → Stellar**, including
+**Stellar → Stellar**. (CCTP is an internal transport detail on some routes,
+not a separate product rail.)
 
-| Rail | Deposit via | Claim via | Scripts |
-|---|---|---|---|
-| **Rozo Intents** (primary — our own stack) | Intents API `POST /payments` | `GET/POST /payments/:id/claim*` (sponsored claimable balance) | `deposit-intents.mjs` + `claim-intents.mjs` |
-| CCTP bridge (variant — Circle burn/mint) | Bridge API `POST /payments` | `/stellar/accounts/:G/cctp-unclaimed` + `sponsor-trustline/*` | `deposit-cctp.mjs` + `claim-cctp.mjs` |
+## Why claiming can never be one-shot
 
-## Why claiming can never be one-shot (on either rail)
-
-A Stellar trustline can only be authorized by **the recipient's own signature**.
-No contract, no relayer, no CCTP mint can create it on the recipient's behalf —
-and a brand-new wallet has no XLM to pay for anything itself. So delivery to a
-fresh wallet is inherently two-phase:
+A Stellar trustline can only be authorized by **the recipient's own
+signature**. No contract, no relayer, no mint can create it on the recipient's
+behalf — and a brand-new wallet has no XLM to pay for anything itself. So
+delivery to a fresh wallet is inherently two-phase:
 
 1. **Deposit**: funds arrive on our side and **park** for the recipient.
 2. **Claim**: the recipient signs one transaction locally; Rozo's KMS signer
@@ -26,37 +24,40 @@ The user's only credential is possession of their secret key. The user's only
 action is one local signature. Gas paid by the user: zero.
 
 An anti-faucet gate ensures sponsorship is only granted to addresses that
-genuinely have funds parked — otherwise the endpoint would be a free XLM
-faucet.
+genuinely have funds parked.
+
+## Product rules (founder-decided 2026-07-29 / 07-31)
+
+| Rule | Value |
+|---|---|
+| Opt-in | Sponsorship is per-intent: pass the `intent` field at creation (frontend passes `?intent=stellarsponsor`). No field → no sponsorship, normal behavior. |
+| Amount cap | **$10,000 USD per sponsored intent**, enforced at creation. |
+| Routes | Any Intents source chain → Stellar, **including Stellar → Stellar**. |
+| Service fee | **$0.10 flat per operation** — applies to each of transfer, bridge, and claim. |
+| Claim fee | service fee **plus 2 XLM** (the sponsored-reserve component, converted to USD at claim time), deducted from the delivered USDC (a fresh wallet has nothing else to pay with). At XLM ≈ $0.17: claim ≈ $0.44 total; transfer/bridge = $0.10. |
+| Unclaim / account close | The recipient can later close (delete) the account; the sponsored XLM reserves unlock and are rebated per the account-close policy. XLM/USD is computed at execution time. |
+| Park TTL | 30 days; expiry releases sponsorship capacity but funds stay on the custody ledger and remain claimable on request. |
+
+> Server-side status: the claim surface, fee deduction, $10k cap, and
+> account-close flow are on the `feat/cctp-claim` branch of `rozo-intents-api`
+> (some parts pending implementation). **All claim endpoints are currently 404
+> in production** until that branch is merged and redeployed, and the intents
+> claim rail additionally needs `STELLAR_GAS_SPONSOR_CLAIM_ENABLED` plus a
+> provisioned claim-custody account. Deposits work but park. Track: ainative
+> `todos/20260731-paysponsor-demo-gaps.md`.
 
 ## API surface
 
-**Rozo Intents** (base: `https://intentapiv4.rozo.ai/functions/v1/payment-api`)
+Base: `https://intentapiv4.rozo.ai/functions/v1/payment-api`
 
 | Step | Endpoint |
 |---|---|
-| Create intent | `POST /payments` — `{appId, orderId, type: "exactIn", source: {chainId: "8453", tokenSymbol: "USDC", amount}, destination: {chainId: "1500", tokenSymbol: "USDC", receiverAddress: "G..."}}` → `source.receiverAddress` is the deposit address |
+| Create intent | `POST /payments` — `{appId, orderId, type: "exactIn", intent: "stellarsponsor", source: {chainId, tokenSymbol: "USDC", amount}, destination: {chainId: "1500", tokenSymbol: "USDC", receiverAddress: "G..."}}` → `source.receiverAddress` is the deposit address (source chainId `8453` = Base, `1500` = Stellar, …) |
 | Payment status | `GET /payments/:id` |
 | Claim status | `GET /payments/:id/claim` |
 | Build sponsored claim | `POST /payments/:id/claim/transaction` — body `{claimant: "G..."}`, `Idempotency-Key` header (8–200 chars) |
 | Submit signed XDR | `POST /payments/:id/claim/submit` — body `{transactionId, signedXdr}`, `Idempotency-Key` header |
-
-**CCTP bridge** (bridge base: `https://api-production-dd86.up.railway.app`)
-
-| Step | Endpoint |
-|---|---|
-| Create bridge payment | `POST /payments`, notify `POST /payments/:id/payin`, status `GET /payments/:id` |
-| List unclaimed | `GET <intents-base>/stellar/accounts/:G/cctp-unclaimed` |
-| Build / submit sponsored trustline | `POST <intents-base>/stellar/accounts/:G/sponsor-trustline/{transaction,submit}` (`Idempotency-Key` header) |
-
-> **⚠️ Status 2026-07-31**: all claim endpoints are temporarily **404 in
-> production** — the claim code lives on the unmerged `feat/cctp-claim` branch
-> of `rozo-intents-api` and the last `payment-api` deploy came from `main`.
-> Additionally the intents claim rail needs `STELLAR_GAS_SPONSOR_CLAIM_ENABLED`
-> and a provisioned claim-custody account. Deposits still work but park until
-> the claim surface is restored. Track: ainative
-> `todos/20260729-cctp-claim-canary-handoff.md` and
-> `todos/20260731-paysponsor-demo-gaps.md`.
+| Unclaim / close account | account-close endpoints (branch; see `stellar-close-rebate` handlers) |
 
 ## Scripts
 
@@ -68,21 +69,16 @@ npm install                                # Node 20+
 
 # 1. fresh recipient wallet
 node scripts/create-wallet.mjs stellar     # → wallets/stellar-<ts>.txt
-node scripts/create-wallet.mjs base        # (optional payer wallet)
 
-# 2. deposit — PRIMARY rail (Rozo Intents), spends real money
+# 2. deposit — spends real money
 export DEPOSIT_EVM_PRIVATE_KEY=0x...       # funded Base wallet (USDC + gas ETH)
 node scripts/deposit-intents.mjs --amount 1
 
 # 3. claim — recipient side, zero gas
 node scripts/claim-intents.mjs             # payment id auto-read from wallets/
-
-# CCTP variant
-node scripts/deposit-cctp.mjs --amount 1
-node scripts/claim-cctp.mjs
 ```
 
-Both claim scripts retry the known `submit_rejected` / `tx_too_early` flake
+The claim script retries the known `submit_rejected` / `tx_too_early` flake
 (build sets minTime = now; a submit within the same ledger can be early) by
 resubmitting the same ticket after ~8s.
 
@@ -93,15 +89,16 @@ Each full run costs ~$1 USDC + Base gas and exercises production.
 | # | Step | Expected |
 |---|---|---|
 | 1 | `create-wallet.mjs stellar` | new G address; account does NOT exist on Horizon |
-| 2 | `deposit-intents.mjs --amount 1` | intent created; deposit address returned; Base tx confirmed; claim appears (parked) within ~2 min |
+| 2 | `deposit-intents.mjs --amount 1` | intent created (with `intent: stellarsponsor`); deposit address returned; Base tx confirmed; claim appears (parked) within ~2 min |
 | 3 | `GET /payments/:id/claim` | claim exists, status `claim_ready` |
-| 4 | `claim-intents.mjs` | build returns signable XDR; submit 200 (allow one 422 retry); tx visible on Horizon |
-| 5 | Wait ≤2 min | claim reaches terminal state; Horizon shows USDC on the new wallet |
+| 4 | `claim-intents.mjs` | build returns signable XDR; submit 200 (allow one 422 retry); tx on Horizon |
+| 5 | Wait ≤2 min | claim terminal; Horizon shows USDC on the new wallet, **minus the 2 XLM + $0.10 fee** once fee deduction ships |
 | 6 | Re-run `claim-intents.mjs` | idempotent: no double-spend, no error loop |
-| 7 | Repeat 2–6 with `*-cctp.mjs` | same outcome via the CCTP rail (`cctp-unclaimed` count 1 → 0) |
+| 7 | Stellar→Stellar variant of 2–6 | same outcome with source chainId `1500` |
+| 8 | Create with amount > $10,000 | rejected at creation once the cap ships |
+| 9 | Unclaim: close the account | reserves unlock; rebate paid per policy |
 
 Failure triage:
-- build 503 `sponsorship_capacity_exhausted` → sponsor flag off (or custody capacity, intents rail)
-- 403 `no_pending_cctp_delivery` (CCTP) → deposit hasn't parked yet, or wrong address
+- build 503 `sponsorship_capacity_exhausted` → sponsor flag off or custody capacity
 - submit 422 twice+ → check Horizon `result_codes` in the signer logs
 - claim routes 404 → claim surface not deployed (see status note above)
