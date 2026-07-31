@@ -183,7 +183,8 @@ const dstAfter = await horizonAccount(destination);
 const dstUsdcAfter = usdcOf(dstAfter)?.balance ?? '0';
 const dstXlmAfter = (dstAfter.balances ?? []).find((b) => b.asset_type === 'native')?.balance ?? '0';
 const usdcDelta = (Number(dstUsdcAfter) - Number(dstUsdcBefore)).toFixed(7);
-console.log(`destination USDC: ${dstUsdcBefore} → ${dstUsdcAfter} (Δ ${usdcDelta}; expected ≥ swept ${srcUsdc})`);
+const usd2 = (v) => `≈ $${Number(v).toFixed(2)}`;
+console.log(`destination USDC: ${dstUsdcBefore} → ${dstUsdcAfter} (Δ ${usdcDelta} ${usd2(usdcDelta)}; expected ≥ swept ${srcUsdc})`);
 console.log(`destination XLM:  ${dstXlmBefore} → ${dstXlmAfter} (merge moves the user's own native balance, sponsored reserves return to Rozo)`);
 if (Number(usdcDelta) + 1e-7 < Number(srcUsdc)) {
   console.error('destination USDC delta is below the swept amount — investigate before calling this a pass');
@@ -199,7 +200,8 @@ const rebated = await poll('rebate arrival', 3 * 60 * 1000, async () => {
 if (rebated) {
   const fin = await horizonAccount(destination);
   const finUsdc = usdcOf(fin)?.balance ?? '0';
-  console.log(`\n✅ rebate received: destination USDC now ${finUsdc} (Δ ${(Number(finUsdc) - Number(dstUsdcAfter)).toFixed(7)})`);
+  const rebateDelta = (Number(finUsdc) - Number(dstUsdcAfter)).toFixed(7);
+  console.log(`\n✅ rebate received: destination USDC now ${finUsdc} (Δ ${rebateDelta} ${usd2(rebateDelta)})`);
 } else {
   console.warn('rebate not seen yet — it is queued server-side (stellar close-rebate outbox) and pays out when the withdraw-loop rebate pass runs. Not a close failure.');
 }

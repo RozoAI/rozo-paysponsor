@@ -57,7 +57,11 @@ if (!claimRes.ok) {
   process.exit(1);
 }
 const claim = await claimRes.json();
+const usd2 = (v) => (v === undefined || v === null ? null : `≈ $${Number(v).toFixed(2)}`);
 console.log(`claim status: ${claim.status}`);
+if (claim.amount) console.log(`claim amount: ${claim.amount} (${usd2(claim.amount)})`);
+if (claim.sponsorFee) console.log(`sponsor fee:  ${claim.sponsorFee} (${usd2(claim.sponsorFee)})`);
+if (claim.netAmount) console.log(`net to you:   ${claim.netAmount} (${usd2(claim.netAmount)})`);
 
 // --- 2. build sponsored claim transaction ---
 const buildRes = await fetch(`${INTENTS_API}/payments/${paymentId}/claim/transaction`, {
@@ -116,6 +120,6 @@ const acctRes = await fetch(`${HORIZON}/accounts/${G}`);
 if (!acctRes.ok) { console.error(`\naccount not on Horizon (${acctRes.status})`); process.exit(1); }
 const acct = await acctRes.json();
 const usdc = (acct.balances ?? []).find((b) => b.asset_code === 'USDC');
-console.log(`\n✅ Horizon USDC balance: ${usdc ? usdc.balance : 'none yet'}`);
+console.log(`\n✅ Horizon USDC balance: ${usdc ? `${usdc.balance} (${usd2(usdc.balance)})` : 'none yet'}`);
 if (!usdc || Number(usdc.balance) <= 0) process.exit(1);
 console.log('claim complete — brand-new wallet received USDC with zero gas paid by the user.');

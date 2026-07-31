@@ -34,7 +34,7 @@ genuinely have funds parked.
 | Amount cap | **$10,000 USD per sponsored intent**, enforced at creation. |
 | Routes | Any Intents source chain → Stellar, **including Stellar → Stellar**. |
 | Service fee | **$0.05 flat per operation** — transfer and bridge. |
-| Claim fee | **$0.05 plus 2 XLM** (the sponsored-reserve deposit component, converted to USD at claim time), deducted from the delivered USDC (a fresh wallet has nothing else to pay with). At XLM ≈ $0.17: claim ≈ $0.39. The 2 XLM is effectively a deposit — most of it comes back on account close. |
+| Claim fee | **$0.05 plus 2 XLM** (the sponsored-reserve deposit component, converted to USD at quote time), **ceiled to the next whole cent** (founder ruling 2026-07-31), deducted from the delivered USDC (a fresh wallet has nothing else to pay with). Example at XLM = $0.17: 2 × 0.17 + 0.05 = 0.39 → fee **$0.39**, so a $0.99 order nets exactly **$0.60** (not 0.6009920). The 2 XLM is effectively a deposit — most of it comes back on account close. |
 | Close | Two variants. **`close`** (no balance): delete the account; unlocked XLM reserves are rebated **in USDC only** (95%, priced at execution time). **`close with balance`**: remaining USDC plus the reserve rebate are sent out together, with the bridge/transfer fee deducted. Both variants require a destination address — **USDC on Base (`0x…`) or Stellar (`G…`), auto-detected by format**. Zero gas throughout. |
 | Park TTL | 30 days; expiry releases sponsorship capacity but funds stay on the custody ledger and remain claimable on request. |
 
@@ -52,6 +52,7 @@ Base: `https://intentapiv4.rozo.ai/functions/v1/payment-api`
 
 | Step | Endpoint |
 |---|---|
+| Fee quote (dry run) | `POST /payments?dryrun=true` — same body as create (no `orderId` needed); creates nothing, spends nothing. For `intent: "stellarsponsor"` the response carries `stellarSponsor: {mode, sponsorFee, netAmount, claimableBalanceAmount, totalFee, xlmUsdPrice}` from the exact same quote path the real create freezes. `mode: "direct"` means the destination already has the trustline (no sponsorship, no fee). |
 | Create intent | `POST /payments` — `{appId, orderId, type: "exactIn", intent: "stellarsponsor", source: {chainId, tokenSymbol: "USDC", amount}, destination: {chainId: "1500", tokenSymbol: "USDC", receiverAddress: "G..."}}` → `source.receiverAddress` is the deposit address (source chainId `8453` = Base, `1500` = Stellar, …) |
 | Payment status | `GET /payments/:id` |
 | Claim status | `GET /payments/:id/claim` |
@@ -90,10 +91,10 @@ Each full run costs ~$0.5 USDC + Base gas and exercises production.
 | # | Step | Expected |
 |---|---|---|
 | 1 | `create-wallet.mjs stellar` | new G address; account does NOT exist on Horizon |
-| 2 | `deposit-intents.mjs --amount 0.5` | intent created (with `intent: stellarsponsor`); deposit address returned; Base tx confirmed; claim appears (parked) within ~2 min |
+| 2 | `deposit-intents.mjs --amount 0.5` | dryrun quote printed first (fee/net, e.g. XLM $0.17 → fee $0.39, net $0.11); intent created (with `intent: stellarsponsor`); deposit address returned; Base tx confirmed; claim appears (parked) within ~2 min |
 | 3 | `GET /payments/:id/claim` | claim exists, status `claim_ready` |
 | 4 | `claim-intents.mjs` | build returns signable XDR; submit 200 (allow one 422 retry); tx on Horizon |
-| 5 | Wait ≤2 min | claim terminal; Horizon shows USDC on the new wallet, **minus the 2 XLM + $0.05 fee** once fee deduction ships |
+| 5 | Wait ≤2 min | claim terminal; Horizon shows USDC on the new wallet, **minus the cent-ceiled 2 XLM + $0.05 fee** (whole-cent value, e.g. exactly 0.3900000) once fee deduction ships |
 | 6 | Re-run `claim-intents.mjs` | idempotent: no double-spend, no error loop |
 | 7 | Stellar→Stellar variant of 2–6 | same outcome with source chainId `1500` |
 | 8 | Create with amount > $10,000 | rejected at creation once the cap ships |

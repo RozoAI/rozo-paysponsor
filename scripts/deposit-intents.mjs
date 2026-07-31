@@ -51,20 +51,45 @@ if (!pk) { console.error('DEPOSIT_EVM_PRIVATE_KEY is required'); process.exit(1)
 const payer = privateKeyToAccount(pk.startsWith('0x') ? pk : `0x${pk}`);
 console.log(`payer:     ${payer.address.slice(0, 8)}...${payer.address.slice(-4)}`);
 
+// --- 0. fee quote (dryrun) — preview before spending anything ---
+// Same body, same server-side quote path as the real create (the API runs
+// prepareStellarGasSponsorPayment in both). Fees are ceiled to whole cents
+// (founder ruling 2026-07-31), so net = gross − fee lands on a 2dp boundary.
+const usd2 = (v) => `$${Number(v).toFixed(2)}`;
+const intentBody = {
+  appId: APP_ID,
+  type: 'exactIn',
+  intent: 'stellarsponsor', // opt-in per founder ruling 2026-07-29: without this a no-trustline destination bounces
+  display: { title: 'paysponsor demo', currency: 'USD' },
+  source: { chainId: '8453', tokenSymbol: 'USDC', amount },
+  destination: { chainId: '1500', tokenSymbol: 'USDC', receiverAddress: dest },
+};
+const dryrunRes = await fetch(`${INTENTS_API}/payments?dryrun=true`, {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify(intentBody),
+});
+const quote = await dryrunRes.json();
+if (!dryrunRes.ok) { console.error('dryrun quote failed:', dryrunRes.status, JSON.stringify(quote)); process.exit(1); }
+if (quote.stellarSponsor) {
+  const q = quote.stellarSponsor;
+  if (q.mode === 'direct') {
+    console.log('quote:     destination already has a USDC trustline — no sponsorship, no sponsor fee');
+  } else {
+    console.log(`quote:     you pay ${amount} USDC on Base`);
+    console.log(`           sponsor fee ${q.sponsorFee} (≈ ${usd2(q.sponsorFee)})`);
+    console.log(`           recipient nets ${q.netAmount} (≈ ${usd2(q.netAmount)}) after claiming`);
+  }
+} else {
+  console.log('quote:     (no stellarSponsor fragment in dryrun — older API deployment; fee will apply at claim time)');
+}
+
 // --- 1. create the intent (Base USDC → Stellar USDC) ---
 const orderId = `paysponsor_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
 const createRes = await fetch(`${INTENTS_API}/payments`, {
   method: 'POST',
   headers: { 'Content-Type': 'application/json' },
-  body: JSON.stringify({
-    appId: APP_ID,
-    orderId,
-    type: 'exactIn',
-    intent: 'stellarsponsor', // opt-in per founder ruling 2026-07-29: without this a no-trustline destination bounces
-    display: { title: 'paysponsor demo', currency: 'USD' },
-    source: { chainId: '8453', tokenSymbol: 'USDC', amount },
-    destination: { chainId: '1500', tokenSymbol: 'USDC', receiverAddress: dest },
-  }),
+  body: JSON.stringify({ ...intentBody, orderId }),
 });
 const intent = await createRes.json();
 if (!createRes.ok || !intent.id) { console.error('create intent failed:', createRes.status, JSON.stringify(intent)); process.exit(1); }
