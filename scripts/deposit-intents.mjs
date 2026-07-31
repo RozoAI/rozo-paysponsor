@@ -4,8 +4,8 @@
 // sponsored claim that scripts/claim-intents.mjs collects with zero gas.
 //
 //   export DEPOSIT_EVM_PRIVATE_KEY=0x...   # funded Base wallet (USDC + gas ETH)
-//   node scripts/deposit-intents.mjs --dest G... --amount 1
-//   node scripts/deposit-intents.mjs --amount 1   # recipient = newest wallets/stellar-*.txt
+//   node scripts/deposit-intents.mjs --dest G... --amount 0.5
+//   node scripts/deposit-intents.mjs --amount 0.5   # recipient = newest wallets/stellar-*.txt
 //
 // Spends real money. Env overrides: INTENTS_API, APP_ID (default rozoTest so
 // demo runs stay out of GMV), BASE_RPC_URL.
@@ -25,7 +25,7 @@ const APP_ID = process.env.APP_ID ?? 'rozoTest';
 const args = Object.fromEntries(
   process.argv.slice(2).map((a, i, all) => (a.startsWith('--') ? [a.slice(2), all[i + 1]] : null)).filter(Boolean),
 );
-const amount = args.amount ?? '1';
+const amount = args.amount ?? '0.5';
 const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 
 // --- recipient ---
@@ -60,6 +60,7 @@ const createRes = await fetch(`${INTENTS_API}/payments`, {
     appId: APP_ID,
     orderId,
     type: 'exactIn',
+    intent: 'stellarsponsor', // opt-in per founder ruling 2026-07-29: without this a no-trustline destination bounces
     display: { title: 'paysponsor demo', currency: 'USD' },
     source: { chainId: '8453', tokenSymbol: 'USDC', amount },
     destination: { chainId: '1500', tokenSymbol: 'USDC', receiverAddress: dest },
@@ -90,19 +91,23 @@ console.log('base tx confirmed');
 const deadline = Date.now() + 15 * 60 * 1000;
 let status = '';
 while (Date.now() < deadline) {
-  const body = await (await fetch(`${INTENTS_API}/payments/${intent.id}`)).json();
-  const s = body.status ?? body.state;
-  if (s !== status) { status = s; console.log(`status:    ${status}`); }
-  if (status === 'payment_payout_completed' || status === 'payment_completed') {
-    console.log('✅ delivered directly (recipient already had a trustline)');
-    process.exit(0);
-  }
-  const claimRes = await fetch(`${INTENTS_API}/payments/${intent.id}/claim`);
-  if (claimRes.ok) {
-    const claim = await claimRes.json();
-    console.log(`claim:     status=${claim.status}`);
-    console.log(`\n✅ parked as a sponsored claim — next:\n  node scripts/claim-intents.mjs --payment ${intent.id}`);
-    process.exit(0);
+  try {
+    const body = await (await fetch(`${INTENTS_API}/payments/${intent.id}`)).json();
+    const s = body.status ?? body.state;
+    if (s !== status) { status = s; console.log(`status:    ${status}`); }
+    if (status === 'payment_payout_completed' || status === 'payment_completed') {
+      console.log('✅ delivered directly (recipient already had a trustline)');
+      process.exit(0);
+    }
+    const claimRes = await fetch(`${INTENTS_API}/payments/${intent.id}/claim`);
+    if (claimRes.ok) {
+      const claim = await claimRes.json();
+      console.log(`claim:     status=${claim.status}`);
+      console.log(`\n✅ parked as a sponsored claim — next:\n  node scripts/claim-intents.mjs --payment ${intent.id}`);
+      process.exit(0);
+    }
+  } catch {
+    // transient network/JSON error — the payment is already on-chain, keep polling
   }
   await new Promise((r) => setTimeout(r, 5000));
 }

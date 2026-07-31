@@ -73,7 +73,7 @@ node scripts/create-wallet.mjs stellar     # → wallets/stellar-<ts>.txt
 
 # 2. deposit — spends real money
 export DEPOSIT_EVM_PRIVATE_KEY=0x...       # funded Base wallet (USDC + gas ETH)
-node scripts/deposit-intents.mjs --amount 1
+node scripts/deposit-intents.mjs --amount 0.5
 
 # 3. claim — recipient side, zero gas
 node scripts/claim-intents.mjs             # payment id auto-read from wallets/
@@ -85,12 +85,12 @@ resubmitting the same ticket after ~8s.
 
 ## Test plan (documented first, then run)
 
-Each full run costs ~$1 USDC + Base gas and exercises production.
+Each full run costs ~$0.5 USDC + Base gas and exercises production.
 
 | # | Step | Expected |
 |---|---|---|
 | 1 | `create-wallet.mjs stellar` | new G address; account does NOT exist on Horizon |
-| 2 | `deposit-intents.mjs --amount 1` | intent created (with `intent: stellarsponsor`); deposit address returned; Base tx confirmed; claim appears (parked) within ~2 min |
+| 2 | `deposit-intents.mjs --amount 0.5` | intent created (with `intent: stellarsponsor`); deposit address returned; Base tx confirmed; claim appears (parked) within ~2 min |
 | 3 | `GET /payments/:id/claim` | claim exists, status `claim_ready` |
 | 4 | `claim-intents.mjs` | build returns signable XDR; submit 200 (allow one 422 retry); tx on Horizon |
 | 5 | Wait ≤2 min | claim terminal; Horizon shows USDC on the new wallet, **minus the 2 XLM + $0.05 fee** once fee deduction ships |

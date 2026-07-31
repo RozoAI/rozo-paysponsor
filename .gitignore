@@ -2,3 +2,4 @@ node_modules/
 wallets/
 .env
 .env.*
+!.env.example

@@ -77,11 +77,14 @@ const signedXdr = tx.toXDR();
 console.log('signed locally');
 
 // --- 4. submit; retry the same ticket on the tx_too_early flake ---
+// One Idempotency-Key for the whole logical submit: retries replay the same
+// operation instead of registering as new ones.
+const submitIdempotencyKey = crypto.randomUUID();
 let submitted = null;
 for (let attempt = 1; attempt <= 4; attempt++) {
   const res = await fetch(`${INTENTS_API}/payments/${paymentId}/claim/submit`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'Idempotency-Key': crypto.randomUUID() },
+    headers: { 'Content-Type': 'application/json', 'Idempotency-Key': submitIdempotencyKey },
     body: JSON.stringify({ transactionId, signedXdr }),
   });
   const body = await res.json();
@@ -96,10 +99,14 @@ if (submitted.horizonUrl) console.log(submitted.horizonUrl);
 // --- 5. poll claim until terminal, verify on Horizon ---
 const deadline = Date.now() + 10 * 60 * 1000;
 while (Date.now() < deadline) {
-  const body = await (await fetch(`${INTENTS_API}/payments/${paymentId}/claim`)).json();
-  if (['claim_completed', 'claim_confirmed', 'completed'].includes(body.status)) {
-    console.log(`claim terminal: ${body.status}`);
-    break;
+  try {
+    const body = await (await fetch(`${INTENTS_API}/payments/${paymentId}/claim`)).json();
+    if (['claim_completed', 'claim_confirmed', 'completed'].includes(body.status)) {
+      console.log(`claim terminal: ${body.status}`);
+      break;
+    }
+  } catch {
+    // transient network/JSON error — keep polling until the deadline
   }
   process.stdout.write('.');
   await new Promise((r) => setTimeout(r, 6000));
