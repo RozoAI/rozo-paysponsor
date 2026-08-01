@@ -16,11 +16,10 @@
 //     locally → POST /stellar/accounts/close/submit → poll Horizon until the
 //     source account is 404 (merged).
 //
-// The 95% reserve rebate (~$0.20 USDC) is enqueued server-side at close
-// confirmation and paid ASYNCHRONOUSLY from custody by the withdraw-loop
-// rebate worker to the SAME destination. This script polls for it briefly but
-// does not fail the run if it has not arrived (the rebate pass may not be
-// scheduled yet — see the final report line).
+// The 95% reserve rebate is enqueued server-side at close confirmation and paid
+// ASYNCHRONOUSLY from custody to the SAME destination by a background worker —
+// it can arrive minutes or hours later. This script polls briefly and reports
+// what it saw; a missing rebate at that point is not a close failure.
 //
 // Destination requirements (checked up front): exists on Horizon, holds a USDC
 // trustline (for the sweep + rebate), and is not the closing account itself.
@@ -31,11 +30,11 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import StellarSdk from '@stellar/stellar-sdk';
+import { verifyUnsignedXdr, USDC_ISSUER, ROZO_CUSTODY } from './xdr-guard.mjs';
 
-const { Keypair, TransactionBuilder } = StellarSdk;
+const { Keypair } = StellarSdk;
 const INTENTS_API = process.env.INTENTS_API ?? 'https://intentapiv4.rozo.ai/functions/v1/payment-api';
 const HORIZON = process.env.HORIZON_URL ?? 'https://horizon.stellar.org';
-const USDC_ISSUER = 'GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN';
 const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 
 const args = Object.fromEntries(
@@ -85,8 +84,17 @@ async function api(pathname, body, idempotencyKey) {
   const json = await res.json().catch(() => ({}));
   return { res, json };
 }
-function signLocally(unsignedXdr, networkPassphrase) {
-  const tx = TransactionBuilder.fromXDR(unsignedXdr, networkPassphrase);
+// Never sign server-supplied XDR blind: check the network, the operations and
+// every field that could move funds before the key touches it. See xdr-guard.mjs.
+function signLocally(unsignedXdr, networkPassphrase, expect) {
+  let tx;
+  try {
+    tx = verifyUnsignedXdr(unsignedXdr, networkPassphrase, { self: G, ...expect });
+  } catch (err) {
+    console.error(`\n✋ refusing to sign the transaction the API returned: ${err.message}`);
+    console.error('   nothing was signed and nothing was spent.');
+    process.exit(1);
+  }
   tx.sign(kp);
   return tx.toXDR();
 }
@@ -138,7 +146,11 @@ if (Number(srcUsdc) > 0) {
   }, crypto.randomUUID());
   if (!res.ok) { console.error('transfer build failed:', res.status, JSON.stringify(json)); process.exit(1); }
   console.log(`transfer ticket ${json.transactionId} (expires ${json.expiresAt})`);
-  const signed = signLocally(json.unsignedXdr, json.networkPassphrase);
+  const signed = signLocally(json.unsignedXdr, json.networkPassphrase, {
+    flow: 'transfer',
+    destination,
+    amount: srcUsdc,
+  });
   const submitted = await submitWithRetry('/stellar/transfers/submit', json.transactionId, signed);
   console.log(`transfer submit: status=${submitted.status} tx=${submitted.transactionHash ?? 'pending'}`);
   const swept = await poll('source USDC to reach 0', 5 * 60 * 1000, async () => {
@@ -168,7 +180,10 @@ const { res: buildRes, json: built } = await api('/stellar/accounts/close/transa
 }, crypto.randomUUID());
 if (!buildRes.ok) { console.error('close build failed:', buildRes.status, JSON.stringify(built)); process.exit(1); }
 console.log(`close ticket ${built.transactionId} (expires ${built.expiresAt})`);
-const signedClose = signLocally(built.unsignedXdr, built.networkPassphrase);
+const signedClose = signLocally(built.unsignedXdr, built.networkPassphrase, {
+  flow: 'close',
+  mergeDestination: destination,
+});
 const closeSubmitted = await submitWithRetry('/stellar/accounts/close/submit', built.transactionId, signedClose);
 console.log(`close submit: status=${closeSubmitted.status} tx=${closeSubmitted.transactionHash ?? 'pending'}`);
 if (closeSubmitted.horizonUrl) console.log(closeSubmitted.horizonUrl);
@@ -191,18 +206,43 @@ if (Number(usdcDelta) + 1e-7 < Number(srcUsdc)) {
   process.exit(1);
 }
 
-// --- 6. rebate (async, paid by the withdraw-loop rebate worker) ---
-console.log('\nwaiting up to 3 min for the ~95% reserve rebate (USDC from custody)...');
+// --- 6. rebate (async, paid from custody by a background worker) ---
+// Identify the rebate by the actual payment record, and specifically by its
+// SENDER: the rebate is paid from Rozo's Stellar custody account. Accepting
+// "any sender that is not us" would report an unrelated USDC payment landing in
+// this window as the rebate — the destination is a live wallet. Override with
+// ROZO_CUSTODY_ADDRESS if a deployment pays from a different custody account.
+const CUSTODY = ROZO_CUSTODY;
+const rebatePayments = async (cursor) => {
+  const url = `${HORIZON}/accounts/${destination}/payments?order=asc&limit=200${cursor ? `&cursor=${cursor}` : ''}`;
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`Horizon ${res.status}`);
+  const records = (await res.json())._embedded?.records ?? [];
+  return records.filter((r) =>
+    r.type === 'payment' &&
+    r.to === destination &&
+    r.asset_code === 'USDC' &&
+    r.asset_issuer === USDC_ISSUER &&
+    r.from === CUSTODY);
+};
+// Everything already on the account is history; only look forward from here.
+let rebateCursor = '';
+try {
+  const res = await fetch(`${HORIZON}/accounts/${destination}/payments?order=desc&limit=1`);
+  rebateCursor = (await res.json())._embedded?.records?.[0]?.paging_token ?? '';
+} catch { /* no cursor — we will just see the whole history and pick new arrivals */ }
+
+console.log(`\nwaiting up to 3 min for the ~95% reserve rebate (USDC from custody ${CUSTODY.slice(0, 6)}…${CUSTODY.slice(-4)})...`);
+let rebate = null;
 const rebated = await poll('rebate arrival', 3 * 60 * 1000, async () => {
-  const a = await horizonAccount(destination);
-  return Number(usdcOf(a)?.balance ?? '0') > Number(dstUsdcAfter) + 1e-7;
+  const hits = await rebatePayments(rebateCursor);
+  rebate = hits.at(-1) ?? null;
+  return !!rebate;
 });
 if (rebated) {
-  const fin = await horizonAccount(destination);
-  const finUsdc = usdcOf(fin)?.balance ?? '0';
-  const rebateDelta = (Number(finUsdc) - Number(dstUsdcAfter)).toFixed(7);
-  console.log(`\n✅ rebate received: destination USDC now ${finUsdc} (Δ ${rebateDelta} ${usd2(rebateDelta)})`);
+  console.log(`\n✅ rebate received: +${rebate.amount} USDC ${usd2(rebate.amount)} from ${rebate.from}`);
+  console.log(`   payment ${rebate.id} at ${rebate.created_at}`);
 } else {
-  console.warn('rebate not seen yet — it is queued server-side (stellar close-rebate outbox) and pays out when the withdraw-loop rebate pass runs. Not a close failure.');
+  console.warn('rebate not seen yet — it is queued server-side and paid on the next rebate pass, which can be hours away. Not a close failure.');
 }
 console.log('\nclose complete — account merged, balance delivered, user paid zero gas.');

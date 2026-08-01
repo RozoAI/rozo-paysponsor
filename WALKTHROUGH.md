@@ -30,16 +30,29 @@ Cast:
 
 ## 0. Run it yourself — setup
 
-You need Node 20+, about five minutes, and a Base wallet funded with:
+You need Node 20+ and a Base wallet funded with:
 
 - **USDC**: the amount you want to send — 1 USDC is enough for a full run
 - **ETH**: ~0.0002 ETH, which covers a few hundred deposits (one costs well
   under a cent of gas)
 
-Everything below talks to public production endpoints; no API key, no
-allowlisting, no account with us.
+Everything below talks to public production endpoints under the shared test id
+`rozoTest`: no signup, no API key, no allowlisting, no account with us.
+Sponsored payouts under `rozoTest` are limited to **$0.01 – $100 net per
+payout**, which covers this entire walkthrough.
 
-What that 1 USDC turns into, at XLM ≈ $0.17:
+For a higher limit, or for anything beyond a demo, register your own
+application at **<https://partners.rozo.ai>** (application type: **wallet**).
+You get an `appId` and an API key, used **as a pair** — a registered appId
+without its key is rejected with `400 missing_api_key`. Put both in `.env` as
+`APP_ID` and `ROZO_API_KEY`; the deposit script sends the key as `X-API-Key`.
+
+Budget about 20 minutes of wall clock for the bridge and claim, and note that
+the closing rebate is asynchronous — in the run recorded below it landed about
+7.5 hours after the account was closed.
+
+What that 1 USDC turns into, at XLM ≈ $0.175 (the price quoted in §1 — your
+quote will differ slightly with spot):
 
 | | USDC |
 |---|---:|
@@ -52,8 +65,9 @@ What that 1 USDC turns into, at XLM ≈ $0.17:
 | **total recovered** | **0.75** |
 
 Send more and only the claim fee stays flat — it is a fixed reserve deposit,
-not a percentage, so a $100 order keeps ~$99.59. And if the destination
-already has a USDC trustline there is no claim fee at all.
+not a percentage. A $100 order pays the 0.1 % bridge fee ($0.10) and the same
+$0.40 claim fee, so $99.50 lands. And if the destination already has a USDC
+trustline there is no claim fee at all.
 
 ```bash
 git clone <this repo> && cd rozo-paysponsor-demo
@@ -62,12 +76,13 @@ cp .env.example .env      # then put your funded Base private key in
                           # DEPOSIT_EVM_PRIVATE_KEY — .env is gitignored
 ```
 
-The four scripts map one-to-one onto the steps below:
+The four commands map one-to-one onto the steps below (`xdr-guard.mjs` is a
+shared module, not something you run):
 
 | Script | Step |
 |---|---|
 | `create-wallet.mjs stellar` | makes the fresh recipient wallet (§2) |
-| `deposit-intents.mjs --amount 1` | quotes, then bridges (§1, §2) |
+| `deposit-intents.mjs --amount 1` | quotes, then bridges — **one command, §1 and §2 are its two halves** |
 | `claim-intents.mjs` | the recipient's zero-gas claim (§4) |
 | `close-intents.mjs --destination G…` | close + payout (§5) |
 
@@ -77,36 +92,41 @@ are never passed on the command line.
 
 ---
 
-## 1. Quote (dry run — creates nothing, spends nothing)
+## 1. Quote — the fee, before any money moves
 
 `POST /payments?dryrun=true` with the same body as a real create returns the
-frozen fee math before any money moves. With `intent: "stellarsponsor"` the
-response carries the sponsorship quote (current whole-cent fee rule):
+frozen fee math and creates nothing. `deposit-intents.mjs` calls it on every
+run and prints the result **before** it creates or funds the intent, so the
+first thing you see is what you will pay:
 
 ```
-$ node scripts/deposit-intents.mjs --amount 1
+$ node scripts/deposit-intents.mjs --amount 1     # ← the one command; §2 is its second half
 ── dryrun quote ──────────────────────────────────────
 mode                    sponsored        (destination has no trustline)
 xlmUsdPrice             $0.175
 sponsorFee              $0.40            (2 XLM × 0.175 + 0.05 = 0.40 → ceil to cent)
-claimableBalanceAmount  0.99 USDC        (1.00 − $0.01 bridge spread)
+claimableBalanceAmount  0.99 USDC        (1.00 − $0.01 bridge fee)
 netAmount               0.59 USDC        (0.99 − 0.40)
 ──────────────────────────────────────────────────────
-The quote is printed automatically before every deposit — the script prices the
-order first and only then creates it, so you always see the fee before any
-money moves.
 ```
+
+> **This is not a separate dry-run command.** The script has no quote-only
+> flag: it quotes and then pays, in one invocation. Running it once produces
+> both this output and the payment in §2 — running it twice pays twice. If the
+> API cannot return a sponsorship quote, the script aborts before spending
+> anything.
 
 `mode: "direct"` would mean the destination already has the USDC trustline —
 no sponsorship needed, no sponsor fee.
 
 ## 2. Bridge — $1 USDC in on Base
 
-The real create returns a dedicated deposit address; one plain ERC-20
-transfer funds the intent. No approvals, no contract calls from the payer.
+Straight after printing that quote, the same invocation creates the intent. The
+create returns a dedicated deposit address; one plain ERC-20 transfer funds it.
+No approvals, no contract calls from the payer.
 
 ```
-$ node scripts/deposit-intents.mjs --amount 1
+(continued output of the same command)
 intent created  intent: stellarsponsor  destination: GCWV4GAB…YPKF2L6N
 deposit address (Base): 0xa443f34ef6cb4aef4107ebc11ca214238f8FE60a
 sending 1.000000 USDC from 0xee0C2094…BF8987A5e3 …
@@ -120,8 +140,11 @@ Explorer: [Basescan](https://basescan.org/tx/0x60ec5709f3709ad7f80e07ff97564d3a2
 
 ## 3. Park — claimable balance on Stellar
 
-Within ~2 minutes the custody account parks the full bridged amount (0.99
-USDC) as a **claimable balance**. Note the two claimants: the recipient (any
+The custody account then parks the full bridged amount (0.99 USDC) as a
+**claimable balance** — in this run 18 minutes after the Base transfer
+confirmed (12:54:43 → 13:13:12 UTC); the script polls for up to 45 minutes and
+prints the intent id up front, so a run you interrupt can be resumed with
+`claim-intents.mjs --payment <id>`. Note the two claimants: the recipient (any
 time before the 30-day TTL) and custody (reclaim after expiry). The recipient
 account still does not exist on-chain at this point.
 
@@ -147,10 +170,18 @@ starting balance of 0 XLM**, establishes the USDC trustline, and the
 recipient claims the balance. Fee payer: Rozo. XLM held by the recipient at
 any point: **zero**.
 
+Before signing, the script parses the returned XDR and checks it against what
+it asked for — public network, known operation types, and every operation your
+key would authorize matching the expected account, asset, destination and
+amount. A demo that signs whatever a server hands back is teaching the wrong
+habit; see `scripts/xdr-guard.mjs`.
+
 ```
 $ node scripts/claim-intents.mjs
 building sponsored claim for GCWV4GAB…YPKF2L6N …
-✔ signable XDR received (824 bytes), signing locally
+✔ signable XDR received (824 bytes)
+xdr verified: 5 ops, yours: changeTrust, claimClaimableBalance, payment
+✔ signing locally
 ✔ submit accepted
 ✔ tx on Horizon: 287c03ceab932849d8556fd94e8748de30f84dfa58d05879e24c0c0956c33654
 delivered: 0.6009920 USDC   (0.99 − 0.3890080 sponsor fee, old 7dp rate)
@@ -196,6 +227,13 @@ of the unlocked XLM, converted to USDC at execution-time price**, to the same
 destination — the user ends the lifecycle holding only USDC, having never
 owned XLM.
 
+This leg is **asynchronous**: it is queued at close confirmation and paid out
+by a background worker on its next pass. In this run the rebate landed
+**7 h 28 m after the merge** (16:42:38 → 00:10:45 UTC). `close-intents.mjs`
+watches for it for three minutes and then exits successfully with a note — it
+matches the actual incoming payment from custody rather than a rising balance,
+so an unrelated deposit into your destination cannot be mistaken for a rebate.
+
 ```
 rebate detected on GD5R4HTO…HUMI2BB4U:
   +0.1635710 USDC  from custody GBLTI2TT…ADWMXUAE  (95% × 1 XLM × spot)
@@ -215,9 +253,13 @@ Explorer: [stellar.expert — destination account `GD5R…BB4U`](https://stellar
 
 | UTC (2026) | Event | Tx |
 |---|---|---|
-| 07-31 ~13:11 | $1 USDC deposit on Base | `0x60ec5709…30cc2589b` |
-| 07-31 13:13:12 | Park: 0.99 USDC claimable balance created | `67831ee9…bb685c6d` |
+| 07-31 12:54:43 | $1 USDC deposit on Base | `0x60ec5709…30cc2589b` |
+| 07-31 13:13:12 | Park: 0.99 USDC claimable balance created (+18 m) | `67831ee9…bb685c6d` |
 | 07-31 15:45:25 | Claim: sponsored create + trustline + claim, 0 gas | `287c03ce…56c33654` |
 | 07-31 16:42:21 | Close leg 1: 0.6009920 USDC swept to destination | `1b0ea7f7…15b07ed47` |
 | 07-31 16:42:38 | Close leg 2: trustline removed, account merged | `22b01834…2e0ef2e4` |
-| 08-01 00:10:45 | Rebate: +0.1635710 USDC from custody to destination | (payment on destination account) |
+| 08-01 00:10:45 | Rebate: +0.1635710 USDC from custody to destination (+7 h 28 m) | (payment on destination account) |
+
+The gaps between park → claim → close are just when a human ran the next
+command; the deposit → park and close → rebate gaps are the system's own
+latency. Each individual step (claim, each close leg) confirms in seconds.
