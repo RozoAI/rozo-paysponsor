@@ -12,7 +12,7 @@ The recipient never touched XLM and never paid gas.
 
 > **Fee note:** this run executed under the old 7-decimal-place fee formula
 > (fee 0.3890080, net 0.6009920 on a $0.99 park). Under the current
-> whole-cent-ceiling rule (founder ruling 2026-07-31) the same order quotes
+> whole-cent-ceiling rule the same order quotes
 > **fee $0.40 / net $0.59**. The quote example in step 1 shows today's
 > numbers; the on-chain records show the historical 7dp amounts.
 

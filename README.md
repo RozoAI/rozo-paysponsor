@@ -30,15 +30,16 @@ action is one local signature. Gas paid by the user: zero.
 An anti-faucet gate ensures sponsorship is only granted to addresses that
 genuinely have funds parked.
 
-## Product rules (founder-decided 2026-07-29 / 07-31)
+## Product rules
 
 | Rule | Value |
 |---|---|
 | Opt-in | Sponsorship is per-intent: pass the `intent` field at creation (frontend passes `?intent=stellarsponsor`). No field → no sponsorship, normal behavior. |
 | Amount cap | **$10,000 USD per sponsored intent**, enforced at creation. |
 | Routes | Any Intents source chain → Stellar, **including Stellar → Stellar**. |
-| Service fee | **$0.05 flat per operation** — transfer and bridge. |
-| Claim fee | **$0.05 plus 2 XLM** (the sponsored-reserve deposit component, converted to USD at quote time), **ceiled to the next whole cent** (founder ruling 2026-07-31), deducted from the delivered USDC (a fresh wallet has nothing else to pay with). Example at XLM = $0.17: 2 × 0.17 + 0.05 = 0.39 → fee **$0.39**, so a $0.99 order nets exactly **$0.60** (not 0.6009920). The 2 XLM is effectively a deposit — most of it comes back on account close. |
+| Bridge / transfer fee | Percentage of the amount with a small floor (a $1 order pays $0.01). Charged whether or not sponsorship applies. |
+| Already has a USDC trustline | **No claim fee at all** — the payout is delivered straight to the wallet, no claimable balance, no sponsorship. Only the bridge/transfer fee applies. |
+| Claim fee | **$0.05 plus 2 XLM** (the sponsored-reserve deposit component, converted to USD at quote time), **ceiled to the next whole cent**, deducted from the delivered USDC (a fresh wallet has nothing else to pay with). Example at XLM = $0.17: 2 × 0.17 + 0.05 = 0.39 → fee **$0.39**, so a $0.99 order nets exactly **$0.60** (not 0.6009920). The 2 XLM is effectively a deposit — most of it comes back on account close. |
 | Close | Two variants. **`close`** (no balance): delete the account; unlocked XLM reserves are rebated **in USDC only** (95%, priced at execution time). **`close with balance`**: remaining USDC plus the reserve rebate are sent out together, with the bridge/transfer fee deducted. Both variants require a destination address — **USDC on Base (`0x…`) or Stellar (`G…`), auto-detected by format**. Zero gas throughout. |
 | Park TTL | 30 days; expiry releases sponsorship capacity but funds stay on the custody ledger and remain claimable on request. |
 
