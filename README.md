@@ -73,6 +73,9 @@ All scripts read secrets from environment variables or local `wallets/` files
 ```bash
 npm install                                # Node 20+
 cp .env.example .env                       # fill in DEPOSIT_EVM_PRIVATE_KEY (never commit .env)
+# fund that Base wallet first: >= the USDC you want to send (1 USDC is enough)
+# plus ~0.0002 ETH for gas. A 1 USDC run delivers 0.59 USDC to the fresh
+# wallet, and ~0.16 more comes back if you close the account afterwards.
 
 # 1. fresh recipient wallet
 node scripts/create-wallet.mjs stellar     # → wallets/stellar-<ts>.txt

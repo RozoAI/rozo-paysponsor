@@ -30,9 +30,30 @@ Cast:
 
 ## 0. Run it yourself — setup
 
-You need Node 20+, a Base wallet holding a little USDC and a few cents of ETH
-for gas, and about five minutes. Everything below talks to public production
-endpoints; no API key, no allowlisting, no account with us.
+You need Node 20+, about five minutes, and a Base wallet funded with:
+
+- **USDC**: the amount you want to send — 1 USDC is enough for a full run
+- **ETH**: ~0.0002 ETH, which covers a few hundred deposits (one costs well
+  under a cent of gas)
+
+Everything below talks to public production endpoints; no API key, no
+allowlisting, no account with us.
+
+What that 1 USDC turns into, at XLM ≈ $0.17:
+
+| | USDC |
+|---|---:|
+| you send | 1.00 |
+| bridge fee | −0.01 |
+| **parked as a claimable balance** | **0.99** |
+| claim fee (2 XLM reserve deposit + $0.05, ceiled to the cent) | −0.40 |
+| **lands in the brand-new wallet, which paid zero gas** | **0.59** |
+| reserve rebate if you later close the account (95%, in USDC) | +0.16 |
+| **total recovered** | **0.75** |
+
+Send more and only the claim fee stays flat — it is a fixed reserve deposit,
+not a percentage, so a $100 order keeps ~$99.59. And if the destination
+already has a USDC trustline there is no claim fee at all.
 
 ```bash
 git clone <this repo> && cd rozo-paysponsor-demo
