@@ -5,6 +5,10 @@ rail: send USDC to a **brand-new Stellar wallet** (0 XLM, no trustline) and let
 the recipient claim it **paying zero gas** — entirely through public APIs, no
 frontend.
 
+📖 **[WALKTHROUGH.md](WALKTHROUGH.md)** — illustrated, step-by-step record of a
+real production run (bridge → claim → close → rebate) with on-chain explorer
+screenshots and verifiable transaction hashes.
+
 Supported sources: **any Intents source chain → Stellar**, including
 **Stellar → Stellar**. (CCTP is an internal transport detail on some routes,
 not a separate product rail.)
