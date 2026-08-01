@@ -28,6 +28,34 @@ Cast:
 
 ---
 
+## 0. Run it yourself — setup
+
+You need Node 20+, a Base wallet holding a little USDC and a few cents of ETH
+for gas, and about five minutes. Everything below talks to public production
+endpoints; no API key, no allowlisting, no account with us.
+
+```bash
+git clone <this repo> && cd rozo-paysponsor-demo
+npm install
+cp .env.example .env      # then put your funded Base private key in
+                          # DEPOSIT_EVM_PRIVATE_KEY — .env is gitignored
+```
+
+The four scripts map one-to-one onto the steps below:
+
+| Script | Step |
+|---|---|
+| `create-wallet.mjs stellar` | makes the fresh recipient wallet (§2) |
+| `deposit-intents.mjs --amount 1` | quotes, then bridges (§1, §2) |
+| `claim-intents.mjs` | the recipient's zero-gas claim (§4) |
+| `close-intents.mjs --destination G…` | close + payout (§5) |
+
+Each run spends real money — a $1 order costs $1 plus a fraction of a cent of
+Base gas. Keys are read from `.env` or the gitignored `wallets/` directory and
+are never passed on the command line.
+
+---
+
 ## 1. Quote (dry run — creates nothing, spends nothing)
 
 `POST /payments?dryrun=true` with the same body as a real create returns the
@@ -35,7 +63,7 @@ frozen fee math before any money moves. With `intent: "stellarsponsor"` the
 response carries the sponsorship quote (current whole-cent fee rule):
 
 ```
-$ node scripts/deposit-intents.mjs --amount 1 --dryrun
+$ node scripts/deposit-intents.mjs --amount 1
 ── dryrun quote ──────────────────────────────────────
 mode                    sponsored        (destination has no trustline)
 xlmUsdPrice             $0.175
@@ -43,7 +71,9 @@ sponsorFee              $0.40            (2 XLM × 0.175 + 0.05 = 0.40 → ceil 
 claimableBalanceAmount  0.99 USDC        (1.00 − $0.01 bridge spread)
 netAmount               0.59 USDC        (0.99 − 0.40)
 ──────────────────────────────────────────────────────
-nothing created, nothing spent. Re-run without --dryrun to pay.
+The quote is printed automatically before every deposit — the script prices the
+order first and only then creates it, so you always see the fee before any
+money moves.
 ```
 
 `mode: "direct"` would mean the destination already has the USDC trustline —
