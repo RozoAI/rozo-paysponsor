@@ -47,9 +47,11 @@ You get an `appId` and an API key, used **as a pair** — a registered appId
 without its key is rejected with `400 missing_api_key`. Put both in `.env` as
 `APP_ID` and `ROZO_API_KEY`; the deposit script sends the key as `X-API-Key`.
 
-Budget about 20 minutes of wall clock for the bridge and claim, and note that
-the closing rebate is asynchronous — in the run recorded below it landed about
-7.5 hours after the account was closed.
+Budget a couple of minutes of wall clock for the bridge and claim (the run
+recorded below predates a 2026-08-03 backend scheduling fix and waited 18
+minutes for the park step — see §3), and note that the closing rebate is
+asynchronous — in the run recorded below it landed about 7.5 hours after the
+account was closed.
 
 What that 1 USDC turns into, at XLM ≈ $0.175 (the price quoted in §1 — your
 quote will differ slightly with spot):
@@ -142,7 +144,12 @@ Explorer: [Basescan](https://basescan.org/tx/0x60ec5709f3709ad7f80e07ff97564d3a2
 
 The custody account then parks the full bridged amount (0.99 USDC) as a
 **claimable balance** — in this run 18 minutes after the Base transfer
-confirmed (12:54:43 → 13:13:12 UTC); the script polls for up to 45 minutes and
+confirmed (12:54:43 → 13:13:12 UTC). That gap was a backend scheduling bug —
+the status write-back only ran when the next sponsored order arrived — fixed
+on 2026-08-03: the payout itself lands on-chain in about a minute and the
+status flips to `ready` within ~30 seconds of that, so current runs park in
+**1–2 minutes**. The script still polls for up to 45 minutes as a safety
+margin and
 prints the intent id up front, so a run you interrupt can be resumed with
 `claim-intents.mjs --payment <id>`. Note the two claimants: the recipient (any
 time before the 30-day TTL) and custody (reclaim after expiry). The recipient
