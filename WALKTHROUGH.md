@@ -41,7 +41,7 @@ Everything below talks to public production endpoints under the shared test id
 Sponsored payouts under `rozoTest` are limited to **$0.01 – $100 net per
 payout**, which covers this entire walkthrough.
 
-For a higher limit, or for anything beyond a demo, register your own
+For a higher limit, or for anything you intend to ship, register your own
 application at **<https://partners.rozo.ai>** (application type: **wallet**).
 You get an `appId` and an API key, used **as a pair** — a registered appId
 without its key is rejected with `400 missing_api_key`. Put both in `.env` as
@@ -72,7 +72,7 @@ $0.40 claim fee, so $99.50 lands. And if the destination already has a USDC
 trustline there is no claim fee at all.
 
 ```bash
-git clone <this repo> && cd rozo-paysponsor-demo
+git clone <this repo> && cd rozo-paysponsor
 npm install
 cp .env.example .env      # then put your funded Base private key in
                           # DEPOSIT_EVM_PRIVATE_KEY — .env is gitignored
@@ -180,7 +180,7 @@ any point: **zero**.
 Before signing, the script parses the returned XDR and checks it against what
 it asked for — public network, known operation types, and every operation your
 key would authorize matching the expected account, asset, destination and
-amount. A demo that signs whatever a server hands back is teaching the wrong
+amount. A client that signs whatever a server hands back is teaching the wrong
 habit; see `scripts/xdr-guard.mjs`.
 
 ```

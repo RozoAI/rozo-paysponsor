@@ -1,9 +1,16 @@
-# rozo-paysponsor-demo
+# rozo-paysponsor
 
-Script-only demo of **Rozo's gasless sponsored claim** on the Rozo Intents
-rail: send USDC to a **brand-new Stellar wallet** (0 XLM, no trustline) and let
-the recipient claim it **paying zero gas** — entirely through public APIs, no
-frontend.
+**Sponsored onboarding for brand-new Stellar wallets.** Deliver USDC to a wallet
+that holds **0 XLM and no trustline**, and let its owner claim it **paying zero
+gas** — reference scripts plus a hardened client-side transaction guard, driven
+entirely by public APIs, no frontend required.
+
+New Stellar accounts face a hard onboarding cliff: an account needs XLM reserves
+before it can exist, and a USDC trustline can only be authorized by the
+recipient's own signature. This repository documents and implements a working
+answer to that cliff — the reserve sponsorship, the two-phase claim, the
+anti-faucet gate, and the reserve rebate on close — as reproducible scripts you
+can run against production yourself.
 
 📖 **[WALKTHROUGH.md](WALKTHROUGH.md)** — illustrated, step-by-step record of a
 real production run (bridge → claim → close → rebate) with on-chain explorer
@@ -12,6 +19,10 @@ screenshots and verifiable transaction hashes.
 Supported sources: **any Intents source chain → Stellar**, including
 **Stellar → Stellar**. (CCTP is an internal transport detail on some routes,
 not a separate product rail.)
+
+- **License:** Apache-2.0 · **Status:** running against production
+- **Maintainers & how to contribute:** [MAINTAINERS.md](MAINTAINERS.md) ·
+  [CONTRIBUTING.md](CONTRIBUTING.md)
 
 ## Why claiming can never be one-shot
 
@@ -36,7 +47,7 @@ genuinely have funds parked.
 |---|---|
 | Opt-in | Sponsorship is per-intent: pass the `intent` field at creation (frontend passes `?intent=stellarsponsor`). No field → no sponsorship, normal behavior. |
 | Amount range | **$0.01 – $100 net per sponsored payout**, enforced at creation. Need more headroom? See [Limits and `appId`](#limits-and-appid) below. |
-| `appId` | Every intent carries an `appId`. The demo defaults to the public test id **`rozoTest`** — no signup, no API key, enough to run everything here. Your own registered appId travels with its API key (`X-API-Key`). |
+| `appId` | Every intent carries an `appId`. The scripts default to the public test id **`rozoTest`** — no signup, no API key, enough to run everything here. Your own registered appId travels with its API key (`X-API-Key`). |
 | Routes | Any Intents source chain → Stellar, **including Stellar → Stellar**. |
 | Bridge / transfer fee | **0.1 % of the amount, minimum $0.01** (so a $1 order pays $0.01). Charged whether or not sponsorship applies. |
 | Already has a USDC trustline | **No claim fee at all** — the payout is delivered straight to the wallet, no claimable balance, no sponsorship. Only the bridge/transfer fee applies. |
@@ -46,7 +57,7 @@ genuinely have funds parked.
 
 ### Limits and `appId`
 
-The demo runs against public production endpoints with `appId: "rozoTest"` — a
+The scripts run against public production endpoints with `appId: "rozoTest"` — a
 shared test identifier. No signup, no API key, no allowlisting. Runs made with
 it are excluded from our production statistics.
 
@@ -77,7 +88,7 @@ immediately and tells you, rather than letting the API reject the create.
 > quote, intent creation, the sponsored claim endpoints, and the account-close
 > and transfer endpoints — is deployed on the production base URL below, and the
 > [walkthrough](WALKTHROUGH.md) is a real production run against it. Two caveats
-> for anyone reading the tables above as a spec rather than as a demo script:
+> for anyone reading the tables above as a spec rather than as a script:
 > the reserve rebate is paid **asynchronously** by a background worker and can
 > lag the close by hours, and closing to a **Base (`0x…`) destination** is a
 > product capability that `close-intents.mjs` does not implement. Sponsorship
@@ -145,7 +156,7 @@ dead end. Three ways to get a valid destination:
   require a **memo** to credit your account — this script sends no memo, so the
   funds may be unattributed or lost. Only use one if your exchange gives you a
   dedicated, memo-less Stellar deposit address.
-- **A second demo wallet**: `node scripts/create-wallet.mjs stellar`, run the
+- **A second throwaway wallet**: `node scripts/create-wallet.mjs stellar`, run the
   deposit + claim legs against it once (that is what creates the account and its
   USDC trustline), then use it as the destination for the first wallet's close.
 

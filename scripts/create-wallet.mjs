@@ -1,4 +1,4 @@
-// Generate a fresh wallet for the demo and save it locally (never committed).
+// Generate a fresh, single-purpose wallet and save it locally (never committed).
 //
 //   node scripts/create-wallet.mjs stellar   → wallets/stellar-<ts>.txt
 //   node scripts/create-wallet.mjs base      → wallets/base-<ts>.txt
