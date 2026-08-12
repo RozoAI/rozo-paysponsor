@@ -35,6 +35,21 @@ have hit the new-account onboarding cliff themselves.
 - Re-run the walkthrough against production before tagging a release, so the
   documented numbers stay true.
 
+## If this project receives ecosystem funding
+
+This project is a candidate for the Stellar Community Fund's Public Goods
+Award. Nothing has been applied for or awarded yet — this is intent, not a
+contract.
+
+If an award does arrive, direct project costs come out first, and what remains
+is shared with the people who did the work that quarter, weighted by
+contribution visible in this repository: merged pull requests, documentation,
+reviews. That includes outside contributors, not only the maintainers above.
+
+We are not publishing a percentage today, because a number invented now would
+be a worse promise than an honest principle. The first split will be proposed
+publicly in an issue before it is paid.
+
 ## Security reports
 
 Do not open a public issue for a vulnerability in the signing guard or in the
