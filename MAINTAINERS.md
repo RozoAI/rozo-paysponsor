@@ -6,13 +6,12 @@ only one able to review, release, or respond to a security report here.
 | Maintainer | GitHub | Area |
 |---|---|---|
 | Shawn Muggle | [@shawnmuggle](https://github.com/shawnmuggle) | Scripts, API surface, signing guard |
-| _(second maintainer — see below)_ | _TBD_ | Docs, walkthrough, examples |
+| Akbar Saputra | [@akbarsaputrait](https://github.com/akbarsaputrait) | Docs, integrator guide, walkthrough, examples |
 
 ## Current status
 
-We are actively onboarding a second maintainer. Until that seat is filled, this
-project has a **pony factor of 1**, and we state that plainly rather than hide
-it: if you are depending on this code, know that today it rests on one person.
+We are actively onboarding a second maintainer (`@akbarsaputrait`). Once the
+onboarding is complete, this project will have a **pony factor of 2**.
 
 ## Becoming a maintainer
 
