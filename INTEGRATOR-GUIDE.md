@@ -9,12 +9,6 @@ This guide explains the **API flow** from the integrator's side: which endpoints
 to call, in what order, how the user signing step works, and how to handle
 failures.
 
-> **A production reference implementation exists.** The Rozo Intents web app
-> ([`rozo-bridge-demo`](https://github.com/RozoAI/rozo-bridge-demo)) implements
-> every step below — the claim page at `/claim/[paymentId]`, the sponsored
-> transfer and account close in the bridge UI, and the signing-guard logic in
-> `src/lib/stellar-claim-xdr.ts`. Port from there, not just from this doc.
-
 ---
 
 ## How it works in one minute
@@ -69,9 +63,7 @@ registered `appId`.
 
 ### API base URL
 
-```
-https://intentapiv4.rozo.ai/functions/v1/payment-api
-```
+**Production base URL:** `https://intentapiv4.rozo.ai/functions/v1/payment-api`
 
 All endpoints below are relative to this base.
 
@@ -161,7 +153,7 @@ approvals, no contract calls from the payer).
 ```json
 {
   "id": "pay_abc123",
-  "status": "payment_pending",
+  "status": "payment_unpaid",
   "source": {
     "receiverAddress": "0xa443f34ef6cb4aef4107ebc11ca214238f8FE60a"
   }
@@ -195,32 +187,28 @@ ready:
 GET /payments/:id/claim
 ```
 
-When the response returns `status: "ready"` and carries a
-`claimableBalanceId`, the recipient can claim.
+When the response returns `status: "claim_ready"` and carries a
+`claimableBalanceId`, the recipient can claim. The claim status lifecycle:
+`waiting_payin` → `funding` → `bridging` → `claim_ready` (claimable) →
+`submitted` → `claim_completed` (terminal). Failure states (`failed`,
+`expired`, `recovered`) are possible at every stage — see Error handling.
 
-### Step 3: Preflight the recipient account (recipient side)
+### Step 3: Preflight the claim (recipient side)
 
-Check the recipient's current on-chain state before building anything:
+Before building anything, re-check the claim status — it must still be
+`claim_ready` (a claim can expire or be recovered while you wait):
 
 ```
-GET /stellar/accounts/:address/status
+GET /payments/:id/claim
 ```
 
-**Response shape:**
+The response carries `claimableBalanceId`, `sponsorFee`, `netAmount`, and the
+`claimant` — the signing guard compares the built transaction against these.
 
-```json
-{
-  "exists": false,              // account does not exist yet (brand new)
-  "isSingleSig": true,          // no custom thresholds/multisig
-  "officialUsdcTrustline": false,
-  "usdcBalance": "0.0000000"
-}
-```
-
-The production frontend **refuses to claim** unless: the account does not exist
-or is single-signature, the connected wallet is the claim's claimant, the
-claim is `ready`, capacity is available, and the claimable balance verifies
-both via the API and **independently on Horizon**.
+For a richer preflight, `GET /stellar/accounts/:address/status` reports the
+recipient's on-chain state (account exists? single-signature? USDC trustline?
+balances?). The reference scripts refuse to proceed unless the account is a
+brand-new single-signature wallet whose key signs for nothing else.
 
 ### Step 4: Build the sponsored transaction (recipient side)
 
@@ -268,14 +256,13 @@ Content-Type: application/json
 returned the XDR, and a compromised or misconfigured server could return a
 transaction that spends funds elsewhere.
 
-**What to verify (from the production `verifyStellarClaimXdr`):**
+**What to verify (the checks `scripts/xdr-guard.mjs` enforces):**
 
 | Check | Why |
 |---|---|
 | Network passphrase is `Public Global Stellar Network ; September 2015` | Prevents testnet transactions from being signed |
-| Re-fetch `/stellar/config` fresh and re-pin against the allowlist | A stale in-memory config could smuggle a bad custody/issuer address in |
 | The XDR parses, is unsigned, and its hash matches `build.transactionHash` | The envelope is exactly what the server said it built |
-| Transaction source is one of the pinned `claimChannels` or `gasSponsors` | The fee payer is a Rozo platform account, not an attacker |
+| Transaction source is a Rozo sponsor (allowlisted, or from `ROZO_SPONSOR_ADDRESSES`) | The fee payer is a Rozo platform account, not an attacker |
 | No fee-bump, no Soroban envelope, no memo, no extra preconditions | The transaction is the simple classic shape expected |
 | Timebounds: valid now, expires in 2–5 minutes, within the API's `expiresAt` | No replayed/expired/stale transaction |
 | Fee is within the safety limit (~100 stroops/op to 10,000/op) | Bounds the sponsor's fee; a fee *you* would pay is refused |
@@ -307,9 +294,9 @@ Each operation must additionally check:
   USDC, amount === `claim.sponsorFee` (max 2 XLM equivalent)
 - `endSponsoringFutureReserves`: sourced by you
 
-**The reference implementation** is `verifyStellarClaimXdr` in
-`rozo-bridge-demo/src/lib/stellar-claim-xdr.ts`. Port it or implement
-equivalent checks with your Stellar SDK.
+**The reference implementation** is `scripts/xdr-guard.mjs` in this repo, used
+by `claim-intents.mjs` and `close-intents.mjs`. Port it or implement equivalent
+checks with your Stellar SDK.
 
 ### Step 6: Sign and submit
 
@@ -362,8 +349,8 @@ Poll the claim status until terminal:
 GET /payments/:id/claim
 ```
 
-Terminal statuses: `claimed`, `completed`, `claim_completed`. The production
-frontend polls every 5s.
+Terminal statuses: `claim_completed`, `claim_confirmed`, `completed`. The claim
+script polls every ~6 seconds up to 10 minutes.
 
 Then check the account's official USDC balance on Horizon:
 
@@ -388,8 +375,14 @@ POST /stellar/accounts/close/preflight
 POST /stellar/accounts/close/transaction
 ```
 
+**The destination must already exist on Horizon and hold the official USDC
+trustline** — the reference script checks both up front and refuses rather
+than merging into a dead end. It also requires a destination, rejects the
+closing account itself, and runs `close/preflight` (response carries
+`close.eligible` and `close.blockers`) before building the merge.
+
 Each follows the same build → verify → sign → submit pattern as the claim,
-with a `verifyStellarClaimXdr` action of `"transfer"` or `"close"`.
+with an `xdr-guard.mjs` flow of `"transfer"` or `"close"`.
 
 **Transfer XDR expectations:** exactly one `payment` operation, sourced by
 you, destination is the requested address (a valid `G…`), official USDC, and
@@ -439,6 +432,8 @@ positive limit.
 
 ## 4. API reference
 
+**Production base URL:** `https://intentapiv4.rozo.ai/functions/v1/payment-api`
+
 ### Endpoints
 
 | Step | Method | Endpoint | Auth | Notes |
@@ -447,7 +442,7 @@ positive limit.
 | Fee quote | `POST` | `/payments?dryrun=true` | `X-API-Key` (if registered) | Same body as create, no `orderId` needed |
 | Create intent | `POST` | `/payments` | `X-API-Key` (if registered) | Sets `intent: "stellarsponsor"` |
 | Payment status | `GET` | `/payments/:id` | — | Returns current state |
-| Claim status | `GET` | `/payments/:id/claim` | — | Poll until `status: "ready"` |
+| Claim status | `GET` | `/payments/:id/claim` | — | Poll until `status: "claim_ready"` |
 | Account status | `GET` | `/stellar/accounts/:address/status` | — | Preflight for claim/close |
 | Build claim | `POST` | `/payments/:id/claim/transaction` | `Idempotency-Key` | Returns unsigned XDR |
 | Submit claim | `POST` | `/payments/:id/claim/submit` | `Idempotency-Key` | Submit signed XDR |
@@ -504,23 +499,23 @@ a percentage.
 | 400 | `missing_api_key` | Registered `appId` sent without `X-API-Key` | Always send the key with a registered appId |
 | 400 | `amountTooLow` / `FEE_EXCEEDS_AMOUNT` | Amount below the bridge fee floor | Send at least $0.01 net |
 | 400 | `stellar_sponsor_amount_above_current_limit` | Amount above the $100 net ceiling | Use a registered `appId` for higher limits |
-| 4xx | `claim_xdr_already_active` | A build for this payment is still active server-side | Reuse the pending build locally, or wait for it to expire |
+| 4xx | `claim_xdr_already_active` | A build for this payment is still active server-side | Wait for the active ticket to expire, then rebuild with a fresh `Idempotency-Key` |
 | 503 | `sponsorship_capacity_exhausted` | Custody sponsorship pool is full | Retry later; nothing was spent |
 | 422 | `tx_too_early` | Transaction submitted before its `minTime` | Retry with the same `Idempotency-Key` after ~8 seconds |
 | 422 | (persistent) | Transaction ticket expired | Rebuild by calling POST `/claim/transaction` again |
 | 404 | on claim status | No claim for this payment | Check if the destination already has a trustline (direct delivery) |
 | 5xx | `horizon_unavailable` | Horizon outage during submit | Retry; the submit may have landed |
 
-### Retry strategy (from the production frontend)
+### Retry strategy (from the reference scripts)
 
 | Step | Retry pattern |
 |---|---|
 | Payment status polling | Poll every 5s for up to 45 minutes (parking latency can be ~1–2 min) |
-| Claim status polling | Poll every 5s until terminal status |
-| Claim build | Reuse the locally persisted pending build; only rebuild when it expires |
+| Claim status polling | Poll every ~6s up to 10 minutes until terminal |
 | Claim submit | Same `Idempotency-Key`, wait 8s, retry up to 4 times |
 | Close submit | Same `Idempotency-Key`, wait 8s, retry up to 4 times |
-| API timeouts | Frontend budgets: 15s for API calls, 20s for Horizon, 90s for wallet signature |
+| Claim/close build | Rebuild with a fresh `Idempotency-Key` when the ticket expires |
+| Close verification | Poll Horizon every ~6s for up to 5 minutes per leg |
 
 ### Guarantee boundaries
 
@@ -557,7 +552,7 @@ a percentage.
 - [ ] Implement `/stellar/config` fetch + local pinning (copy the Phase 0 allowlist)
 - [ ] Implement the deposit flow (create intent → pay deposit address)
 - [ ] Implement the claim flow (preflight → build → verify → sign → submit)
-- [ ] Port or replicate `verifyStellarClaimXdr` checks for your platform
+- [ ] Port or replicate the `xdr-guard.mjs` checks for your platform
 - [ ] Implement the close flow (optional — for reserve rebate)
 - [ ] Implement the wallet-first lookup (optional — for "you have money waiting" UI)
 - [ ] Test with the shared `rozoTest` id first
@@ -572,9 +567,4 @@ a percentage.
 - [WALKTHROUGH.md](WALKTHROUGH.md) — a complete, recorded production run with
   transaction hashes and explorer links
 - [README.md](README.md) — product rules, limits, and script reference
-- `scripts/xdr-guard.mjs` — the reference signing guard (CLI)
-- `rozo-bridge-demo/src/lib/stellar-claim-xdr.ts` — the production signing
-  guard (web wallet)
-- `rozo-bridge-demo/src/lib/stellar-claim-api.ts` — the production API client
-- `rozo-bridge-demo/src/components/stellar-claim/StellarClaimShell.tsx` — the
-  production claim UI flow
+- `scripts/xdr-guard.mjs` — the reference signing guard
