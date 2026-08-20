@@ -1,6 +1,6 @@
 // Verify a server-built Stellar transaction BEFORE signing it.
 //
-// Every sponsored flow in this demo works the same way: you ask Rozo's API to
+// Every sponsored flow here works the same way: you ask Rozo's API to
 // build a transaction, and you sign it locally with your own key. That is the
 // right shape — your secret never leaves your machine — but it is only safe if
 // you actually look at what you are signing. A compromised, misconfigured or

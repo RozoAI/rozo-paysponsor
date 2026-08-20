@@ -14,7 +14,7 @@
 // before spending anything.
 //
 // Spends real money. Env overrides: INTENTS_API, APP_ID (default rozoTest so
-// demo runs stay out of GMV), ROZO_API_KEY (required for your own wallet_* /
+// test runs stay out of GMV), ROZO_API_KEY (required for your own wallet_* /
 // merchant* appId), BASE_RPC_URL.
 
 import 'dotenv/config';
@@ -59,7 +59,7 @@ if (API_KEY && !APP_ID_NEEDS_KEY) {
   process.exit(1);
 }
 // INTENTS_API is an env override, so it is attacker-controllable in exactly the
-// scenario this demo warns about — and the API key is a bearer secret. Only ever
+// scenario this repo warns about — and the API key is a bearer secret. Only ever
 // send it to the endpoint it was issued for. A custom endpoint is fine; a custom
 // endpoint plus your key is not, unless you say so explicitly.
 const DEFAULT_API_HOST = new URL('https://intentapiv4.rozo.ai').host;

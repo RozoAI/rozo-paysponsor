@@ -1,9 +1,9 @@
 {
-  "name": "rozo-paysponsor-demo",
+  "name": "rozo-paysponsor",
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Script-only demo of Rozo's gasless sponsored claim: Base USDC → brand-new Stellar wallet, no frontend",
+  "description": "Sponsored onboarding for brand-new Stellar wallets: gasless USDC claim, reserve sponsorship and rebate, with a client-side XDR guard",
   "engines": {
     "node": ">=20"
   },
