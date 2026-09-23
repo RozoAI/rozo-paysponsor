@@ -245,3 +245,7 @@ Failure triage:
 - build 503 `sponsorship_capacity_exhausted` → custody sponsorship capacity is exhausted; nothing was spent, retry later
 - submit 422 twice+ → the `tx_too_early` flake; the scripts already retry the same ticket, a persistent 422 means the ticket expired — rebuild
 - close leg 2 blocked → source still holds USDC or another trustline; leg 1 must reach a zero USDC balance first
+
+## Secret scanning
+
+Enable the local gitleaks pre-commit hook once per clone: `brew install gitleaks pre-commit && pre-commit install` (config in `.pre-commit-config.yaml`). CI also runs a report-only scan in `.github/workflows/secret-scan.yml`.
